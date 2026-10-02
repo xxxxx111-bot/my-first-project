@@ -1,63 +1,81 @@
 # 📜 历史冷知识 · 批判性思考生成器
 
-输入一个关键词（比如“咖啡”“丝绸之路”“猫”），程序会调用 Claude 生成几条**有趣且真实的历史事实**，并为每条事实给出 3 条从不同角度出发的 **critical thinking 回应**。
+输入一个关键词（比如“咖啡”“郑和”“丝绸之路”），获得几条**有趣的历史事实**，每条都配有 3 条从不同角度出发的 **critical thinking 回应**。
+
+有两种生成方式：
+
+| | 本地数据库（默认） | Claude AI |
+| --- | --- | --- |
+| 数据来源 | 从中文维基百科抓取、存在本地的数据库 | Claude 模型现场生成 |
+| 需要联网 / API Key | 都不需要（只有构建数据库时要联网） | 都需要 |
+| 费用 | 免费 | 每次约 0.1–0.2 美元 |
+| 批判性思考回应 | 按事件类型（战争、政治、科技、灾害……）套用思考模板 | 针对每条事实专门写 |
+| 可追溯性 | 每条都附维基百科来源链接 | 给出核实建议 |
 
 每条事实包含：
 
-| 内容 | 说明 |
-| --- | --- |
-| 标题、时间、地点 | 一眼看懂发生在哪里、什么时候 |
-| 事实正文 + “有趣在哪” | 讲清楚发生了什么、为什么值得一看 |
-| 可信度标签 | 史料确凿 / 存在争议 / 传说轶事，并说明判断依据 |
-| 3 条批判性思考回应 | 从史料质疑、因果分析、多元视角、反事实推演、古今联系、隐含假设中选 3 个角度 |
-| 留给你的问题 | 一个没有标准答案的开放式问题 |
-| 如何核实 | 去哪类资料验证这条事实 |
+- 事实正文、时间，以及“有趣在哪”（本地模式会找出**同一年世界上发生的另一件事**，以及当时中国处于哪个朝代）
+- 可信度标签和判断依据（比如出现“相传”“据说”等字眼会被标出来）
+- 3 条批判性思考回应，从史料质疑、隐含假设、因果分析、反事实推演、多元视角、古今联系中选 3 个角度
+- 一个开放式问题，以及如何核实
 
-网页上的批判性思考回应默认是折叠的——先自己想一想，再展开对照。
+本地数据库里还有维基百科“你知道吗？”栏目的冷知识问答，答案默认隐藏，可以先猜再揭晓。
 
 ## 快速开始
 
 需要 Python 3.10 或更高版本。
 
 ```bash
-# 1. 创建虚拟环境并安装依赖
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+```
 
-# 2. 设置 API Key（在 https://console.anthropic.com 获取）
+### 1. 构建本地数据库（只需一次）
+
+```bash
+python build_db.py
+```
+
+程序会下载中文维基百科的年份页面（公元前 1000 年至今）、366 个日期页面和“你知道吗？”存档，解析后写入 `data/history.db`。这需要几千次请求，大约半小时。下载过的页面会缓存在 `data/cache/`，中断后重新运行会接着往下做。
+
+> 构建时需要能访问 zh.wikipedia.org。想先试一下：`python build_db.py --limit 30`。
+
+### 2. 启动
+
+```bash
+python app.py                      # 网页版，打开 http://127.0.0.1:5000
+python cli.py 咖啡                  # 命令行版（本地数据库）
+python cli.py 郑和 宝船 -n 5         # 多个词用空格隔开 = 同时包含
+python cli.py 罗马 --seed 42        # 固定随机种子，每次结果一样
+```
+
+同一个关键词每次会随机挑选不同的记录，并尽量分散在不同的世纪，所以多点几次“生成”能看到更多内容。
+
+### 想用 Claude AI 生成
+
+```bash
 export ANTHROPIC_API_KEY=sk-ant-...        # Windows PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."
-
-# 3. 启动网页版，然后在浏览器打开 http://127.0.0.1:5000
-python app.py
-```
-
-还没有 API Key？可以先用**演示模式**看看效果（不调用 AI，固定显示“咖啡”的示例）：
-
-```bash
-python app.py --demo
-```
-
-## 命令行版
-
-```bash
-python cli.py 丝绸之路              # 默认 3 条，中文
-python cli.py Rome -n 5 --lang en   # 5 条，英文输出
-python cli.py 猫 --json             # 输出原始 JSON
-python cli.py 咖啡 --demo           # 演示模式
+python app.py                              # 网页上切换到“Claude AI”
+python cli.py 咖啡 --ai --lang en           # 命令行加 --ai
 ```
 
 ## 文件说明
 
 ```
-history_facts.py   核心逻辑：提示词、输出结构、调用 Claude API
+build_db.py        从维基百科下载数据，构建 data/history.db
+wiki_parser.py     解析维基百科页面（年份、日期、“你知道吗？”）
+local_facts.py     本地模式：检索数据库 + 生成批判性思考回应（模板都在这里）
+history_facts.py   AI 模式：提示词、输出结构、调用 Claude API
 app.py             网页版（Flask）
 templates/index.html  网页界面
 cli.py             命令行版
-tests/             单元测试（不需要 API Key）
+tests/             单元测试（不需要联网和 API Key）
 ```
 
-想调整生成风格？直接修改 `history_facts.py` 里的 `SYSTEM_PROMPT`。
+想调整本地模式的思考角度和措辞，修改 `local_facts.py` 里的 `TEMPLATES`、`QUESTIONS` 和 `CATEGORY_WORDS`；想调整 AI 模式，修改 `history_facts.py` 里的 `SYSTEM_PROMPT`。
+
+数据库是普通的 SQLite 文件，也可以用 [DB Browser for SQLite](https://sqlitebrowser.org/) 打开浏览。
 
 ## 运行测试
 
@@ -66,10 +84,9 @@ pip install pytest
 python -m pytest
 ```
 
-## 技术细节
+## 许可
 
-- 模型：`claude-opus-5-5`，使用结构化输出（Pydantic）保证返回格式稳定。
-- 开启了服务端 fallback（`fallbacks: "default"`）：如果安全分类器误拦了某个正常关键词，API 会自动换模型重试，而不是直接报错。
-- 每次生成大约需要几十秒。按 Opus 5.5 的价格（每百万 token 输入 $4 / 输出 $20）估算，生成 3 条大约 0.1–0.2 美元，条数越多越贵。
+- 本地数据库的内容来自[中文维基百科](https://zh.wikipedia.org/)，遵循 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans) 许可协议，每条记录都保留了来源页面。再次分发时请注明出处并使用相同的许可。
+- AI 模式使用 `claude-opus-5-5`，开启了服务端 fallback（`fallbacks: "default"`）：如果安全分类器误拦了正常的关键词，API 会自动换模型重试。
 
-> ⚠️ 内容由 AI 生成，可能有误。“可信度”和“如何核实”是思考的起点，而不是终点——这本身也是一种批判性思考。
+> ⚠️ 无论来自百科还是 AI，内容都可能有误。“可信度”和“如何核实”是思考的起点，而不是终点——这本身也是一种批判性思考。

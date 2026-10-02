@@ -7,6 +7,20 @@ import cli
 import history_facts as hf
 
 
+def sample_result() -> hf.FactsResult:
+    return hf.FactsResult(keyword="咖啡", facts=[hf.HistoryFact(
+        title="从咖啡馆诞生的保险巨头", era="约 1688 年", place="英国伦敦",
+        fact="劳合社起源于爱德华·劳埃德的咖啡馆。", why_interesting="金融机构起源于咖啡馆。",
+        reliability="well_documented", reliability_note="有充分记载。",
+        critical_responses=[
+            hf.CriticalResponse(angle="cause_effect", response="信息是关键。"),
+            hf.CriticalResponse(angle="hidden_assumption", response="机构不一定是设计出来的。"),
+            hf.CriticalResponse(angle="multiple_perspectives", response="对不同的人意义不同。"),
+        ],
+        discussion_question="今天的“咖啡馆”是什么？", how_to_verify="查阅劳合社的历史介绍。",
+    )])
+
+
 class FakeMessages:
     def __init__(self, response):
         self.response = response
@@ -24,10 +38,10 @@ class FakeClient:
 
 
 def test_generate_facts_sends_expected_request():
-    client = FakeClient(parsed_output=hf.demo_result())
+    client = FakeClient(parsed_output=sample_result())
     result = hf.generate_facts("  咖啡 ", 4, "en", client=client)
 
-    assert result == hf.demo_result()
+    assert result == sample_result()
     call = client.messages.calls[0]
     assert call["model"] == hf.MODEL
     assert call["output_format"] is hf.FactsResult
@@ -59,7 +73,7 @@ def test_invalid_language():
 
 @pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens"])
 def test_bad_stop_reason_raises(stop_reason):
-    client = FakeClient(stop_reason=stop_reason, parsed_output=hf.demo_result())
+    client = FakeClient(stop_reason=stop_reason, parsed_output=sample_result())
     with pytest.raises(hf.HistoryFactsError):
         hf.generate_facts("猫", client=client)
 
@@ -67,14 +81,6 @@ def test_bad_stop_reason_raises(stop_reason):
 def test_unparsed_output_raises():
     with pytest.raises(hf.HistoryFactsError):
         hf.generate_facts("猫", client=FakeClient(parsed_output=None))
-
-
-def test_demo_result_is_complete():
-    result = hf.demo_result()
-    assert len(result.facts) == 3
-    for fact in result.facts:
-        assert len(fact.critical_responses) == 3
-        assert len({r.angle for r in fact.critical_responses}) == 3
 
 
 def test_every_label_is_defined():
@@ -85,7 +91,7 @@ def test_every_label_is_defined():
 
 @pytest.fixture
 def client(monkeypatch):
-    web.app.config.update(TESTING=True, DEMO=False)
+    web.app.config.update(TESTING=True)
     return web.app.test_client()
 
 
@@ -100,20 +106,20 @@ def test_api_returns_facts(client, monkeypatch):
 
     def fake_generate(keyword, count, language, client=None):
         seen.update(keyword=keyword, count=count, language=language)
-        return hf.demo_result()
+        return sample_result()
 
     monkeypatch.setattr(hf, "generate_facts", fake_generate)
     monkeypatch.setattr(web, "get_client", lambda: None)
-    resp = client.post("/api/facts", json={"keyword": "猫", "count": 2, "language": "en"})
+    resp = client.post("/api/facts", json={"keyword": "猫", "count": 2, "language": "en", "engine": "ai"})
     assert resp.status_code == 200
     data = resp.get_json()
-    assert data["demo"] is False
-    assert len(data["facts"]) == 3
+    assert data["engine"] == "ai"
+    assert len(data["facts"]) == 1
     assert seen == {"keyword": "猫", "count": 2, "language": "en"}
 
 
 def test_api_input_error(client):
-    resp = client.post("/api/facts", json={"keyword": ""})
+    resp = client.post("/api/facts", json={"keyword": "", "engine": "ai"})
     assert resp.status_code == 400
     assert "关键词" in resp.get_json()["error"]
 
@@ -124,26 +130,28 @@ def test_api_upstream_error(client, monkeypatch):
 
     monkeypatch.setattr(hf, "generate_facts", failing)
     monkeypatch.setattr(web, "get_client", lambda: None)
-    resp = client.post("/api/facts", json={"keyword": "猫"})
+    resp = client.post("/api/facts", json={"keyword": "猫", "engine": "ai"})
     assert resp.status_code == 502
     assert resp.get_json()["error"] == "boom"
 
 
-def test_api_demo_mode(client):
-    web.app.config["DEMO"] = True
-    resp = client.post("/api/facts", json={"keyword": "随便"})
-    assert resp.status_code == 200
-    assert resp.get_json()["demo"] is True
-    assert resp.get_json()["keyword"] == "咖啡"
+def test_api_unknown_engine(client):
+    resp = client.post("/api/facts", json={"keyword": "猫", "engine": "magic"})
+    assert resp.status_code == 400
 
 
-def test_cli_demo(capsys):
-    assert cli.main(["随便", "--demo"]) == 0
+def test_cli_ai_reports_errors(monkeypatch, capsys):
+    def failing(*args, **kwargs):
+        raise hf.HistoryFactsError("没有找到 API Key")
+
+    monkeypatch.setattr(hf, "generate_facts", failing)
+    assert cli.main(["猫", "--ai"]) == 1
+    assert "没有找到 API Key" in capsys.readouterr().err
+
+
+def test_cli_ai_formats_output(monkeypatch, capsys):
+    monkeypatch.setattr(hf, "generate_facts", lambda *a, **k: sample_result())
+    assert cli.main(["咖啡", "--ai"]) == 0
     out = capsys.readouterr().out
-    assert "伦敦的“妇女反咖啡请愿书”" in out
-    assert "【史料质疑】" in out
-
-
-def test_cli_reports_errors(capsys):
-    assert cli.main(["", "--demo"]) == 1
-    assert "错误" in capsys.readouterr().err
+    assert "从咖啡馆诞生的保险巨头" in out
+    assert "【因果分析】" in out

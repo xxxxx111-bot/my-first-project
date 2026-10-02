@@ -42,6 +42,8 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  a { color: var(--accent); }
   body {
     margin: 0;
     background: var(--bg);
@@ -52,7 +54,7 @@
   main { max-width: 820px; margin: 0 auto; padding: 32px 16px 64px; }
   header h1 { font-size: 1.8rem; margin: 0 0 4px; letter-spacing: 0.02em; }
   header p { margin: 0; color: var(--muted); }
-  .demo-banner {
+  .notice {
     margin-top: 16px; padding: 10px 14px; border-radius: 8px;
     background: var(--warn-soft); color: var(--warn); font-size: 0.92rem;
   }
@@ -106,6 +108,15 @@
   .responses li { padding: 12px 14px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 8px 8px 0; }
   .angle { display: block; font-size: 0.8rem; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; }
   .question { margin-top: 14px; padding: 12px 14px; border-radius: 8px; background: var(--accent-soft); }
+  .engine { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .engine label { padding: 4px 12px; cursor: pointer; gap: 0; }
+  .engine input { position: absolute; opacity: 0; pointer-events: none; }
+  .engine label:has(input:checked) { background: var(--accent); color: var(--card); font-weight: 600; }
+  .engine label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .answer { margin-top: 10px; border-top: none; padding-top: 0; }
+  .answer p { margin: 8px 0 0; font-weight: 600; }
+  .links { margin: 10px 0 0; font-size: 0.88rem; color: var(--muted); display: flex; gap: 6px 16px; flex-wrap: wrap; }
+  .links a { color: var(--accent); }
   footer { margin-top: 40px; color: var(--muted); font-size: 0.85rem; text-align: center; }
 </style>
 </head>
@@ -114,8 +125,8 @@
   <header>
     <h1>📜 历史冷知识 · 批判性思考</h1>
     <p>输入一个关键词，获得几条有趣的历史事实，以及从不同角度出发的 critical thinking 回应。</p>
-    {% if demo %}
-    <div class="demo-banner">演示模式：没有调用 AI，无论输入什么都会显示同一份示例（关键词“咖啡”）。设置 ANTHROPIC_API_KEY 后去掉 --demo 即可真正生成。</div>
+    {% if not local_stats %}
+    <div class="notice">本地数据库还没有构建，本地模式暂时不可用。运行 <code>python build_db.py</code> 从维基百科下载数据，或者切换到 AI 模式。</div>
     {% endif %}
   </header>
 
@@ -125,6 +136,10 @@
       <button id="submit" type="submit">生成</button>
     </div>
     <div class="options">
+      <div class="engine" role="radiogroup" aria-label="生成方式">
+        <label title="从维基百科本地数据库检索，免费、离线"><input type="radio" name="engine" value="local" {% if local_stats %}checked{% endif %}>本地数据库</label>
+        <label title="调用 Claude 生成，需要 API Key"><input type="radio" name="engine" value="ai" {% if not local_stats %}checked{% endif %}>Claude AI</label>
+      </div>
       <label>条数
         <select id="count">
           {% for n in range(min_facts, max_facts + 1) %}
@@ -132,7 +147,7 @@
           {% endfor %}
         </select>
       </label>
-      <label>输出语言
+      <label id="language-option">输出语言
         <select id="language">
           <option value="zh" selected>中文</option>
           <option value="en">English</option>
@@ -140,7 +155,7 @@
       </label>
     </div>
     <div class="chips">
-      {% for k in ["咖啡", "丝绸之路", "猫", "印刷术", "罗马", "茶叶", "瘟疫"] %}
+      {% for k in ["咖啡", "丝绸之路", "郑和", "印刷术", "罗马", "茶叶", "瘟疫"] %}
       <button type="button" class="chip">{{ k }}</button>
       {% endfor %}
     </div>
@@ -149,7 +164,13 @@
   <p id="status" role="status" aria-live="polite"></p>
   <section id="results"></section>
 
-  <footer>内容由 AI 生成，可能有误。请把“可信度”和“如何核实”当作思考的起点，而不是终点。</footer>
+  <footer>
+    {% if local_stats %}
+    <p>本地数据库：{{ local_stats.total }} 条记录（历史事件 {{ local_stats.events }} 条，“你知道吗？” {{ local_stats.dyk }} 条），
+      来自{{ local_stats.source }}，构建于 {{ local_stats.built_at }}，内容遵循 <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans" target="_blank" rel="noopener">CC BY-SA 4.0</a> 许可。</p>
+    {% endif %}
+    <p>无论来自百科还是 AI，内容都可能有误。请把“可信度”和“如何核实”当作思考的起点，而不是终点。</p>
+  </footer>
 </main>
 
 <script>
@@ -157,9 +178,9 @@ const ANGLE_LABELS = {{ angle_labels | tojson }};
 const RELIABILITY_LABELS = {{ reliability_labels | tojson }};
 const UI = {
   zh: { why: "💡 有趣在哪", reliability: "🔎 可信度", think: "🧠 先自己想一想，再展开看批判性思考回应",
-        question: "❓ 留给你的问题", verify: "📚 如何核实" },
+        question: "❓ 留给你的问题", verify: "📚 如何核实", answer: "👀 揭晓答案", source: "来源", more: "延伸阅读" },
   en: { why: "💡 Why it matters", reliability: "🔎 Reliability", think: "🧠 Think first, then reveal the critical-thinking responses",
-        question: "❓ Your turn", verify: "📚 How to verify" },
+        question: "❓ Your turn", verify: "📚 How to verify", answer: "👀 Reveal the answer", source: "Source", more: "Read more" },
 };
 
 const form = document.getElementById("form");
@@ -181,18 +202,37 @@ function labeled(label, text, cls = "note") {
   return p;
 }
 
+function link(label, title, url) {
+  const span = el("span", {}, label + "：");
+  span.append(el("a", { href: url, target: "_blank", rel: "noopener" }, `维基百科《${title}》`));
+  return span;
+}
+
 function renderFact(fact, lang) {
   const ui = UI[lang];
   const card = el("article", { class: "fact" });
   card.append(el("h2", {}, fact.title));
 
   const meta = el("div", { class: "meta" });
-  meta.append(el("span", {}, `${fact.era} · ${fact.place}`));
-  meta.append(el("span", { class: `badge ${fact.reliability}` }, RELIABILITY_LABELS[lang][fact.reliability]));
+  const when = [fact.era, fact.place].filter(Boolean).join(" · ");
+  if (when) meta.append(el("span", {}, when));
+  meta.append(el("span", { class: `badge ${fact.reliability}` },
+    fact.reliability_label || RELIABILITY_LABELS[lang][fact.reliability]));
   card.append(meta);
 
   card.append(el("p", { class: "fact-body" }, fact.fact));
-  card.append(labeled(ui.why, fact.why_interesting));
+  if (fact.why_interesting) card.append(labeled(ui.why, fact.why_interesting));
+  if (fact.answer) {
+    const reveal = el("details", { class: "answer" });
+    reveal.append(el("summary", {}, ui.answer));
+    reveal.append(el("p", {}, fact.answer));
+    if (fact.read_more_url) {
+      const more = el("p", { class: "links" });
+      more.append(link(ui.more, fact.read_more_title, fact.read_more_url));
+      reveal.append(more);
+    }
+    card.append(reveal);
+  }
   card.append(labeled(ui.reliability, fact.reliability_note));
 
   const details = el("details");
@@ -209,30 +249,39 @@ function renderFact(fact, lang) {
 
   card.append(labeled(ui.question, fact.discussion_question, "question"));
   card.append(labeled(ui.verify, fact.how_to_verify));
+  if (fact.source_url) {
+    const links = el("p", { class: "links" });
+    links.append(link(ui.source, fact.source_title, fact.source_url));
+    if (fact.read_more_url && !fact.answer && fact.read_more_title !== fact.source_title) {
+      links.append(link(ui.more, fact.read_more_title, fact.read_more_url));
+    }
+    card.append(links);
+  }
   return card;
 }
 
 async function generate() {
   const keyword = keywordInput.value.trim();
   if (!keyword) { keywordInput.focus(); return; }
-  const lang = document.getElementById("language").value;
+  const engine = document.querySelector("input[name=engine]:checked").value;
+  const lang = engine === "local" ? "zh" : document.getElementById("language").value;
   submitBtn.disabled = true;
   statusEl.className = "";
-  statusEl.textContent = "正在翻阅史书……通常需要几十秒。";
+  statusEl.textContent = engine === "local" ? "正在检索本地数据库……" : "正在翻阅史书……通常需要几十秒。";
   resultsEl.replaceChildren();
   try {
     const resp = await fetch("/api/facts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keyword, count: Number(document.getElementById("count").value), language: lang }),
+      body: JSON.stringify({ keyword, engine, count: Number(document.getElementById("count").value), language: lang }),
     });
     const data = await resp.json().catch(() => ({ error: `服务器返回了意外的响应（${resp.status}）` }));
     if (!resp.ok) throw new Error(data.error || `请求失败（${resp.status}）`);
-    const renderLang = data.demo ? "zh" : lang;
-    statusEl.textContent = renderLang === "zh"
-      ? `关于“${data.keyword}”的 ${data.facts.length} 条历史事实：`
+    statusEl.textContent = lang === "zh"
+      ? `关于“${data.keyword}”的 ${data.facts.length} 条历史事实` +
+        (data.total_matches ? `（本地数据库共有 ${data.total_matches} 条相关记录，再点一次“生成”换一批）：` : "：")
       : `${data.facts.length} historical facts about “${data.keyword}”:`;
-    resultsEl.replaceChildren(...data.facts.map(f => renderFact(f, renderLang)));
+    resultsEl.replaceChildren(...data.facts.map(f => renderFact(f, lang)));
   } catch (err) {
     statusEl.className = "error";
     statusEl.textContent = err.message;
@@ -240,6 +289,13 @@ async function generate() {
     submitBtn.disabled = false;
   }
 }
+
+function syncEngine() {
+  const local = document.querySelector("input[name=engine]:checked").value === "local";
+  document.getElementById("language-option").hidden = local;
+}
+document.querySelectorAll("input[name=engine]").forEach(r => r.addEventListener("change", syncEngine));
+syncEngine();
 
 form.addEventListener("submit", e => { e.preventDefault(); generate(); });
 document.querySelectorAll(".chip").forEach(chip => chip.addEventListener("click", () => {
