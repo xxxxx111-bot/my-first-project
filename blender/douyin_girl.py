@@ -726,7 +726,7 @@ def build_lashes_brows(root, head, eyes):
     tree = bvh_of([head] + eyes)
     head_tree = bvh_of([head])
     m_lash = mat_simple("Lash", srgb("#120C0A"), 0.4)
-    m_brow = mat_hair("Brow", melanin=0.75, redness=0.45, rough=0.45)
+    m_brow = mat_hair("Brow", melanin=0.6, redness=0.5, rough=0.5)
     m_crease = mat_simple("Crease", srgb("#B5786A"), 0.6)
     liner, lashes, crease, brows = [], [], [], []
     for side in (1, -1):
@@ -768,7 +768,7 @@ def build_lashes_brows(root, head, eyes):
                 lashes.append(([b, b.lerp(tip, 0.5), tip], [0.6, 0.4, 0.05]))
 
         # eyebrows: many short hairs inside a soft straight-ish brow shape
-        for _ in range(420 if not QUICK else 200):
+        for _ in range(300 if not QUICK else 200):
             s = random.random() ** 1.1
             bx, bz = brow_center(s)
             hw = brow_half(s)
@@ -793,7 +793,7 @@ def build_lashes_brows(root, head, eyes):
     curve_object("Eyeliner", liner, 0.010, root, mat=m_lash)
     curve_object("Lashes", lashes, 0.0045, root, mat=m_lash)
     curve_object("Crease", crease, 0.004, root, mat=m_crease)
-    curve_object("Brows", brows, 0.0045, root, mat=m_brow, bevel_res=1)
+    curve_object("Brows", brows, 0.0028, root, mat=m_brow, bevel_res=1)
 
 
 # ---------------------------------------------------------------------------
@@ -982,7 +982,8 @@ def build_dress(body):
             o = Vector((0, 0.012, z))
             hit = tree.ray_cast(o + dirv * 0.4, -dirv)
             r = (hit[0] - o).length if hit[0] is not None else prev[j]
-            r += 0.004
+            # tuck the top edge into the bodice so it doesn't read as a ledge
+            r += lerp(-0.003, 0.004, smoothstep(0.0, 0.12, t))
             if below_hip:
                 r = max(r, prev[j])
             prev[j] = r
@@ -1084,10 +1085,10 @@ def build_hair(root, head, body, arms):
     def fall(wpts, side, layer, in_front, end_z, margin0=0.010):
         """Let a strand hang under gravity, draping over body & shoulders."""
         cur = wpts[-1].copy()
-        vel = (wpts[-1] - wpts[-2]).normalized() if len(wpts) > 1 else Vector((0, 0, -1))
-        vel += Vector((side * random.uniform(0.0, 0.25), 0.0, 0.0))
+        vel = (wpts[-1] - wpts[-2]).normalized() * 0.5 if len(wpts) > 1 else Vector((0, 0, -1))
+        vel += Vector((side * random.uniform(0.0, 0.06), 0.0, 0.0))
         while cur.z > end_z:
-            vel = (vel + Vector((0, 0, -0.35))).normalized()
+            vel = (vel + Vector((0, 0, -0.5))).normalized()
             nxt = cur + vel * 0.012
             margin = margin0 + 0.010 * layer
             loc, nrm, idx, dist = body_tree.find_nearest(nxt)
